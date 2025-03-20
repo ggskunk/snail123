@@ -10,7 +10,7 @@ while true; do
     # 68-bit aralıkta rastgele bir başlangıç değeri üret
     random_start=$(python3 -c "import random; print(hex(random.randint(0x80000000000000000, 0xFFFFFFFFFFFFFFFFF))[2:].upper())")
 
-    echo "Çalıştırılan komut: ./vanitysearch -gpuId 0 -start $random_start -range 40 1MVDYgVaSN6iKKEsbzRUAYFrYJadLYZvvZ -o output.txt"
+    echo "Çalıştırılan komut: ./vanitysearch -gpuId 0 -start $random_start -range 45 1MVDYgVaSN6iKKEsbzRUAYFrYJadLYZvvZ -o output.txt"
 
     # VanitySearch çalıştır
     ./vanitysearch -gpuId 0 -o output.txt -start $random_start -range 40 1MVDYgVaSN6iKKEsbzRUAYFrYJadLYZvvZ
