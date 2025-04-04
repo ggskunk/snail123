@@ -1,113 +1,63 @@
-# -*- coding: utf-8 -*-
-import secp256k1 as ice
-import time
+#!/usr/bin/env python3
+
+import datetime
 import os
-import sys
 import random
-import argparse
-from multiprocessing import Pool, cpu_count, Manager
+import sys
+import time
+from multiprocessing import Pool
+import secp256k1 as ice
 
-# ==============================================================================
-parser = argparse.ArgumentParser(description='Optimized BTC puzzle search with multiprocessing and accurate progress display.',
-                                 epilog='Enjoy the program! :)')
-parser.version = '02052023'
-parser.add_argument("-p", help="Unsolved Puzzles file. default=unsolved.txt", action="store")
-parser.add_argument("-n", help="Total sequential search in 1 loop. default=1000000", action='store')
+# Configs
+RANGE_START = 0x80000000000000000
+RANGE_END   = 0xfffffffffffffffff
+RANGE_SIZE  = 262144
+TARGET_HASH = bytes.fromhex('e0b8a2baee1b77fc703455f39d51477451fc8cfc')
+NUM_PROCESSES = 24
+PROGRESS_COUNT = 10000
+CHUNK_SIZE = 1024
 
-args = parser.parse_args()
-# ==============================================================================
+def log(message):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted = f"{timestamp} {message}"
+    print(formatted, flush=True, end='')
+    with open('log.txt', 'a') as logfile:
+        logfile.write(formatted)
+        logfile.flush()
 
-seq = int(args.n) if args.n else 1000000  # 1 Million
-p_file = args.p if args.p else 'unsolved.txt'  # 'unsolved.txt'
+def check_key(pvk):
+    h = ice.privatekey_to_h160(0, True, pvk)
+    if h == TARGET_HASH:
+        message = f"Found pvk: {hex(pvk)[2:]}  |  WIF: {ice.btc_pvk_to_wif(pvk, True)}\a\n"
+        print()
+        log(message)
+        print('\a', end='', file=sys.stderr)
+    return 1
 
-if not os.path.isfile(p_file):
-    print('File {} not found'.format(p_file))
-    sys.exit()
+def main():
+    os.system('cls||clear')
+    print("Puzzle 68 random scanner")
+    print("Scanning random addresses in an infinite loop. Press Ctrl+C to stop.\n")
 
-puzz = {int(line.split()[0]): line.split()[1] for line in open(p_file, 'r')}
-puzz_bits = list(puzz.keys())
-puzz_h160 = set(bytes.fromhex(ice.address_to_h160(line)) for line in puzz.values())  # Set for fast lookup
-# ==============================================================================
-
-def print_success(my_key):
-    print('\n============== KEYFOUND ==============')
-    print(f'Puzzle FOUND PrivateKey: {hex(my_key)}   Address: {ice.privatekey_to_address(0, True, my_key)}')
-    print('======================================')
-    with open('KEYFOUNDKEYFOUND.txt', 'a') as fw:
-        fw.write('Puzzle_FOUND_PrivateKey ' + hex(my_key) + '\n')
-    sys.exit()
-
-def randk(bits):
-    return random.SystemRandom().randint(2**(bits-1), 2**bits - 1)
-
-def precalculate_keys(seq, base_point):
-    """ Precalculate sequential increments and their h160 """
-    precomputed_h160 = []
-    for t in chunks(ice.point_sequential_increment(seq, base_point)):
-        precomputed_h160.append(ice.pubkey_to_h160(0, True, t))
-    return precomputed_h160
-
-def chunks(s):
-    for start in range(0, 65 * seq, 65):
-        yield s[start: start + 65]
-
-def worker(task_id, progress_queue, key_counter):
-    """ Worker function for multiprocessing """
     keys_checked = 0
-    key_int = randk(160)
-    for cbits in puzz_bits:
-        bitkey = int('1' + bin(key_int)[2:][(1 + 160 - cbits):], 2)
-        base_point = ice.scalar_multiplication(bitkey)
-        keys_checked += 1
-
-        if ice.pubkey_to_h160(0, True, base_point) in puzz_h160:
-            print_success(bitkey)
-
-        # Precalculate sequential keys and check
-        precomputed_h160 = precalculate_keys(seq, base_point)
-        for cnt, curr160 in enumerate(precomputed_h160):
-            keys_checked += 1
-            if curr160 in puzz_h160:
-                print_success(bitkey + cnt + 1)
-
-        # Update global counter and progress
-        key_counter.value += keys_checked
-        progress_queue.put((task_id, cbits, key_counter.value))
-
-# ==============================================================================
-
-def display_progress(progress_queue, start_time, key_counter):
-    """ Function to display progress from workers """
-    while True:
-        try:
-            task_id, cbits, total_keys = progress_queue.get(timeout=2)
-            elapsed = time.time() - start_time
-            speed = total_keys / elapsed
-            print(f'[Task: {task_id}] [Puzzle: {cbits} bit] [Speed: {speed:.2f} keys/s] [Checked: {total_keys}]', end='\r')
-        except:
-            continue
-
-if __name__ == "__main__":
-    print('\n[+] Starting Program.... Please Wait !')
-    print(f'[+] Search Mode: Sequential Random with multiprocessing. seq={seq}')
-    print(f'[+] Total Unsolved: {len(puzz_bits)} Puzzles in the bit range [{min(puzz_bits)}-{max(puzz_bits)}]')
-
-    manager = Manager()
-    progress_queue = manager.Queue()
-    key_counter = manager.Value('i', 0)  # Shared counter for total keys
     start_time = time.time()
 
     try:
-        with Pool(cpu_count()) as pool:
-            # Start progress display in a separate process
-            pool.apply_async(display_progress, (progress_queue, start_time, key_counter))
-
-            # Run workers
+        with Pool(processes=NUM_PROCESSES) as pool:
             while True:
-                pool.starmap(worker, [(i, progress_queue, key_counter) for i in range(cpu_count())])
+                start_range = random.randint(RANGE_START, RANGE_END - RANGE_SIZE)
+                end_range = start_range + RANGE_SIZE
+                current_range_str = f"{hex(start_range)[2:]}-{hex(end_range)[2:]}"
+                
+                for _ in pool.imap_unordered(check_key, range(start_range, end_range), chunksize=CHUNK_SIZE):
+                    keys_checked += 1
+                    if keys_checked % PROGRESS_COUNT == 0:
+                        elapsed = time.time() - start_time
+                        rate = keys_checked / elapsed if elapsed > 0 else 0
+                        print(f"\rKeys checked: {keys_checked:,} | Rate: {rate:.2f} keys/sec | Range: {current_range_str}", end="", flush=True)
+    except KeyboardInterrupt:
+        print("\n\nScanning stopped by user.")
+        print(f"Total keys checked: {keys_checked:,}")
 
-    except (KeyboardInterrupt, SystemExit):
-        elapsed = time.time() - start_time
-        print(f'\nProgram terminated. Total time elapsed: {elapsed:.2f} seconds')
-        print(f'Total Keys Checked: {key_counter.value}')
-        sys.exit()
+if __name__ == "__main__":
+    main()
